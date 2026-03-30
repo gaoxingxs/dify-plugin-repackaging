@@ -15,6 +15,11 @@ on:
         description: "plugin version"
         required: true
         type: string
+      sdist_fallback_packages:
+        description: "optional comma-separated source-only packages to pre-build as wheels (e.g. docopt)"
+        required: false
+        default: ""
+        type: string
       platform_arm:
         description: "Use ARM platform (true = manylinux_2_17_aarch64, false = manylinux_2_17_x86_64)"
         required: true
@@ -29,6 +34,7 @@ jobs:
           echo "plugin_author  = ${{ inputs.plugin_author }}"
           echo "plugin_name    = ${{ inputs.plugin_name }}"
           echo "plugin_version = ${{ inputs.plugin_version }}"
+          echo "sdist_fallback_packages = ${{ inputs.sdist_fallback_packages }}"
           echo "platform_arm   = ${{ inputs.platform_arm }}"
 
       - name: Resolve platform
@@ -55,6 +61,7 @@ jobs:
       - name: Run plugin repackaging script
         run: |
           PIP_MIRROR_URL=https://pypi.org/simple \
+          SDIST_FALLBACK_PACKAGES="${{ inputs.sdist_fallback_packages }}" \
           ./plugin_repackaging.sh \
           -p ${{ env.PIP_PLATFORM }} \
           -s ${{ env.PACKAGE_SUFFIX }} \

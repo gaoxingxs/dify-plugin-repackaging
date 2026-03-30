@@ -4,10 +4,12 @@
 DEFAULT_GITHUB_API_URL=https://github.com
 DEFAULT_MARKETPLACE_API_URL=https://marketplace.dify.ai
 DEFAULT_PIP_MIRROR_URL=https://mirrors.aliyun.com/pypi/simple
+DEFAULT_SDIST_FALLBACK_PACKAGES=
 
 GITHUB_API_URL="${GITHUB_API_URL:-$DEFAULT_GITHUB_API_URL}"
 MARKETPLACE_API_URL="${MARKETPLACE_API_URL:-$DEFAULT_MARKETPLACE_API_URL}"
 PIP_MIRROR_URL="${PIP_MIRROR_URL:-$DEFAULT_PIP_MIRROR_URL}"
+SDIST_FALLBACK_PACKAGES="${SDIST_FALLBACK_PACKAGES:-$DEFAULT_SDIST_FALLBACK_PACKAGES}"
 
 CURR_DIR=`dirname $0`
 cd $CURR_DIR || exit 1
@@ -332,11 +334,39 @@ PY
 	[ -n "$PIP_PLATFORM" ] && echo "Platform: ${RAW_PLATFORM}"
 
 	mkdir -p ./wheels
+
+	prepare_sdist_fallback_wheels() {
+		local fallback_list="$1"
+		if [[ -z "$fallback_list" ]]; then
+			return 0
+		fi
+
+		echo "Preparing fallback wheels for source-only packages: ${fallback_list}"
+		for pkg in $(echo "$fallback_list" | tr ',;' '  '); do
+			if [[ -z "$pkg" ]]; then
+				continue
+			fi
+			echo "Building fallback wheel: ${pkg}"
+			${PIP_CMD} wheel --no-deps -w ./wheels "${pkg}" \
+				--index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+			if [[ $? -ne 0 ]]; then
+				echo "✗ Error: Failed to build fallback wheel for ${pkg}"
+				exit 1
+			fi
+		done
+		echo "✓ Fallback wheels prepared"
+	}
+
+	prepare_sdist_fallback_wheels "$SDIST_FALLBACK_PACKAGES"
+
 	echo "Downloading wheels to ./wheels/..."
 	${PIP_CMD} download ${PIP_PLATFORM} --prefer-binary -r requirements.txt -d ./wheels \
-		--index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com
+		--index-url ${PIP_MIRROR_URL} --trusted-host mirrors.aliyun.com --find-links ./wheels
 	if [[ $? -ne 0 ]]; then
 		echo "✗ Error: Failed to download dependencies"
+		echo "  Hint: if some dependencies only provide source distributions (for example: docopt),"
+		echo "  set SDIST_FALLBACK_PACKAGES, for example:"
+		echo "  SDIST_FALLBACK_PACKAGES=docopt ./plugin_repackaging.sh ..."
 		exit 1
 	fi
 

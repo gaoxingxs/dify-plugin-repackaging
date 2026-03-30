@@ -51,6 +51,23 @@ Operating System: Linux amd64/aarch64, MacOS x86_64/arm64
 
 Python version: Should be as the same as the version in `dify-plugin-daemon` which is currently 3.12.x
 
+### Handling source-only dependencies (e.g. docopt)
+
+Some plugins depend on packages that may not provide prebuilt wheels for your target platform. In that case `pip download --only-binary=:all:` can fail with errors like:
+
+```text
+Could not find a version that satisfies the requirement docopt (from records)
+No matching distribution found for docopt
+```
+
+You can prebuild these packages into local wheels before the main download step by setting `SDIST_FALLBACK_PACKAGES` (comma-separated package names):
+
+```bash
+SDIST_FALLBACK_PACKAGES=docopt ./plugin_repackaging.sh -p manylinux_2_17_x86_64 market antv visualization 0.1.7
+```
+
+For GitHub Actions, fill the workflow input `sdist_fallback_packages` (for example: `docopt`).
+
 
 #### Clone
 ```shell
@@ -145,4 +162,3 @@ Visit the Dify platform's plugin management page, choose Local Package File to c
 ### Star history
 
 [![Star History Chart](https://api.star-history.com/svg?repos=junjiem/dify-plugin-repackaging&type=Date)](https://star-history.com/#junjiem/dify-plugin-repackaging&Date)
-
