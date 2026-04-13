@@ -321,7 +321,54 @@ PY
 		echo "✓ Using existing requirements.txt"
 	fi
 
+	filter_non_runtime_dependencies() {
+		local REQ_FILE="$1"
+		[ -f "$REQ_FILE" ] || return 0
+
+		python3 - "$REQ_FILE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+req_file = Path(sys.argv[1])
+blocked = {
+    "black",
+    "ruff",
+    "pytest",
+    "mypy",
+    "isort",
+}
+
+lines = req_file.read_text(encoding="utf-8").splitlines()
+result = []
+removed = []
+
+for line in lines:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or stripped.startswith("--"):
+        result.append(line)
+        continue
+
+    candidate = stripped.split(";", 1)[0].strip()
+    candidate = re.split(r"(?:===|==|>=|<=|~=|!=|>|<)", candidate, maxsplit=1)[0].strip()
+
+    if candidate.lower() in blocked:
+        removed.append(stripped)
+        continue
+
+    result.append(line)
+
+req_file.write_text("\n".join(result) + "\n", encoding="utf-8")
+for item in removed:
+    print(f"Filtered non-runtime dependency: {item}")
+PY
+	}
+
 	[ ! -f "requirements.txt" ] && echo "✗ Error: requirements.txt not found" && exit 1
+
+	echo "Filtering known non-runtime dependencies from requirements.txt..."
+	filter_non_runtime_dependencies requirements.txt
+	echo "✓ requirements.txt filtered for known non-runtime dependencies"
 
 	# ============================================
 	# Step 3: Download Python dependencies as wheels
