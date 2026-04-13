@@ -180,6 +180,119 @@ repackage(){
 		echo "Injected [tool.uv] into $PYFILE"
 	}
 
+	filter_non_runtime_dependencies() {
+		local TARGET_FILE="$1"
+		[ -f "$TARGET_FILE" ] || return 0
+
+		python3 - "$TARGET_FILE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
+
+blocked = {
+    "black",
+    "ruff",
+    "pytest",
+    "mypy",
+    "isort",
+}
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+removed = []
+
+
+def split_requirement_name(spec: str) -> str:
+    candidate = spec.strip().split(";", 1)[0].strip()
+    candidate = re.split(r"(?:\[|===|==|>=|<=|~=|!=|>|<)", candidate, maxsplit=1)[0].strip()
+    return candidate.lower()
+
+
+if path.name == "requirements.txt":
+    result = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("--"):
+            result.append(line)
+            continue
+
+        if split_requirement_name(stripped) in blocked:
+            removed.append(stripped)
+            continue
+
+        result.append(line)
+
+    path.write_text("\n".join(result) + "\n", encoding="utf-8")
+elif path.name == "pyproject.toml":
+    if tomllib is None:
+        print("✗ Error: Python tomllib is required to filter pyproject.toml")
+        raise SystemExit(1)
+
+    data = tomllib.loads(text)
+    dependencies = data.get("project", {}).get("dependencies", [])
+    if not dependencies:
+        raise SystemExit(0)
+
+    keep = []
+    for item in dependencies:
+        if split_requirement_name(item) in blocked:
+            removed.append(item)
+            continue
+        keep.append(item)
+
+    if not removed:
+        raise SystemExit(0)
+
+    lines = text.splitlines()
+    new_lines = []
+    in_project = False
+    in_dependencies = False
+    dependency_indent = ""
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if stripped == "[project]":
+                in_project = True
+            else:
+                in_project = False
+            if in_dependencies:
+                in_dependencies = False
+            new_lines.append(line)
+            continue
+
+        if in_project and not in_dependencies and re.match(r"^\s*dependencies\s*=\s*\[\s*$", line):
+            in_dependencies = True
+            dependency_indent = re.match(r"^(\s*)", line).group(1)
+            new_lines.append(line)
+            for item in keep:
+                escaped = item.replace("\\", "\\\\").replace('"', '\\"')
+                new_lines.append(f'{dependency_indent}    "{escaped}",')
+            continue
+
+        if in_dependencies:
+            if re.match(r"^\s*\]\s*$", line):
+                in_dependencies = False
+                new_lines.append(line)
+            continue
+
+        new_lines.append(line)
+
+    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+else:
+    raise SystemExit(0)
+
+for item in removed:
+    print(f"Filtered non-runtime dependency from {path.name}: {item}")
+PY
+	}
+
 	if python3 -m pip --version &> /dev/null 2>&1; then
 		PIP_CMD="python3 -m pip"
 	elif command -v pip &> /dev/null && pip --version &> /dev/null 2>&1; then
@@ -287,7 +400,10 @@ PY
 
 	# Inject [tool.uv] config to enable offline wheel usage
 	if [ -f "pyproject.toml" ]; then
-		echo "Found pyproject.toml, injecting [tool.uv] configuration..."
+		echo "Found pyproject.toml, filtering known non-runtime dependencies..."
+		filter_non_runtime_dependencies "pyproject.toml"
+		echo "✓ pyproject.toml filtered for known non-runtime dependencies"
+		echo "Injecting [tool.uv] configuration..."
 		inject_uv_into_pyproject "pyproject.toml"
 	fi
 
