@@ -398,6 +398,13 @@ PY
 	echo "Step 2: Processing dependencies"
 	echo "=========================================="
 
+	# Remove bundled uv.lock to prevent runtime uv from resolving stale pre-filtered dependencies.
+	# 中文说明：如果插件自带旧 uv.lock，运行时可能优先读取它，导致 black 等已过滤依赖再次出现。
+	if [ -f "uv.lock" ]; then
+		rm -f "uv.lock"
+		echo "Removed bundled uv.lock to avoid stale dependency resolution"
+	fi
+
 	# Inject [tool.uv] config to enable offline wheel usage
 	if [ -f "pyproject.toml" ]; then
 		echo "Found pyproject.toml, filtering known non-runtime dependencies..."
